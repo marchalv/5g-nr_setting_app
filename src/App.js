@@ -11,9 +11,10 @@ import axios from 'axios';
 function App() {
   const [rectangle, setRectangle] = useState(null);
   const [position, setPosition] = useState(null);
-  const [squareSizeMeters, setSquareSizeMeters] = useState(200);
+  const [squareSizeMeters, setSquareSizeMeters] = useState(500);
   const [averageSpeed, setAverageSpeed] = useState(null);
   const [maxSpeed, setMaxSpeed] = useState(null);
+  const [city, setCity] = useState(null);
 
   const Markers = () => {
     useMapEvents({
@@ -59,46 +60,69 @@ function App() {
     }
   }, [position, squareSizeMeters]);
 
-  let minLat, minLon, maxLat, maxLon;
+  const fetchData = () => {
+    let minLat, minLon, maxLat, maxLon;
 
-  if (rectangle) {
-    minLat = rectangle[0][0];
-    minLon = rectangle[0][1];
-    maxLat = rectangle[1][0];
-    maxLon = rectangle[1][1];
-  }
+    if (rectangle) {
+      minLat = rectangle[0][0];
+      minLon = rectangle[0][1];
+      maxLat = rectangle[1][0];
+      maxLon = rectangle[1][1];
+    }
 
-  const bbox = rectangle ? [minLat, minLon, maxLat, maxLon] : [];
+    const bbox = rectangle ? [minLat, minLon, maxLat, maxLon] : [];
 
-  // Define the Overpass API query
-  const query = `
-    [out:json];
-    way(${bbox.join(',')})["maxspeed"];
-    out body;
-`;
+    // Define the Overpass API query
+    const query = `
+      [out:json];
+      (
+        way(${bbox.join(',')})["maxspeed"];
+        is_in(${position.lat}, ${position.lng});
+        area._["admin_level=8"];
+      );
+      out body;
+    `;
 
-  // Send the request to the Overpass API
-  axios.get('https://overpass-api.de/api/interpreter', { params: { data: query } })
-    .then(response => {
-      console.log('Response:', response);
-      // Extract the max speed data from the response
-      const maxSpeeds = response.data.elements.map(element => parseInt(element.tags.maxspeed, 10));
+    // Send the request to the Overpass API
+    axios.get('https://overpass-api.de/api/interpreter', { params: { data: query } })
+      .then(response => {
+        console.log('Response:', response);
+        // Extract the max speed data from the response
+        const maxSpeeds = response.data.elements.map(element => parseInt(element.tags.maxspeed, 10)).filter(speed => !isNaN(speed));
+        const city = response.data.elements.find(element => element.tags.admin_level === '8');
+        const cityName = city ? city.tags.name : null;
 
-      if (maxSpeeds.length > 0) {
-        // Calculate the average and max speed
-        const avgSpeed = maxSpeeds.reduce((a, b) => a + b, 0) / maxSpeeds.length;
-        const maxSpd = Math.max(...maxSpeeds);
+        if (maxSpeeds.length > 0) {
+          // Calculate the average and max speed
+          for (let i = 0; i < maxSpeeds.length; i++) {
+            // if maxspeed is not a number, remove it from the array
+            if (isNaN(maxSpeeds[i])) {
+              maxSpeeds.splice(i, 1);
+            }
+          }
+          const avgSpeed = Math.round(maxSpeeds.reduce((a, b) => a + b, 0) / maxSpeeds.length);
+          const maxSpd = Math.max(...maxSpeeds);
 
-        // Set the state variables
-        setAverageSpeed(avgSpeed);
-        setMaxSpeed(maxSpd);
-      } else {
-        console.log('No max speed data available for the specified area.');
-      }
-    })
-    .catch(error => {
-      console.error('Error:', error);
-    });
+          // Set the state variables
+          setAverageSpeed(avgSpeed);
+          setMaxSpeed(maxSpd);
+        } else {
+          setAverageSpeed(null);
+          setMaxSpeed(null);
+          console.log('No max speed data available for the specified area.');
+        }
+
+        // Set the place name
+        if (city) {
+          setCity(cityName);
+        }
+      })
+      .catch(error => {
+        console.error('Error:', error);
+      });
+  };
+
+
 
   return (
     <div className="App">
@@ -109,10 +133,11 @@ function App() {
           <p>Longitude: {position ? position.lng : 'N/A'}</p>
           <p>Average Speed: {averageSpeed ? averageSpeed + ' km/h' : 'N/A'}</p>
           <p>Max Speed: {maxSpeed ? maxSpeed + ' km/h' : 'N/A'}</p>
+          <p>City: {city ? city : 'N/A'}</p>
         </div>
       </div>
-      <div className="map">
-        <MapContainer center={[47.49532953378876, 6.804911570265819]} zoom={17}>
+      <div className="map" onClick={fetchData}>
+        <MapContainer center={[47.49532953378876, 6.804911570265819]} zoom={16}>
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
